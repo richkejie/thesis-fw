@@ -68,3 +68,12 @@ idf.py -p PORT monitor
 can change crystal xtal frequency:
 menuconfig: Component config > Hardware Settings > Main XTAL > Config > Main XTAL frequency
 
+EXTRA
+flash erase:
+idf.py -p PORT erase-flash
+
+
+
+
+MAKING NEW PROJECT
+idf.py create-project _proj_name_ _dest_path_
