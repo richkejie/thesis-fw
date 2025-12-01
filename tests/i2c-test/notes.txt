@@ -1,0 +1,3 @@
+Official esp32-idf documentation on i2c driver:
+
+https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/i2c.html
