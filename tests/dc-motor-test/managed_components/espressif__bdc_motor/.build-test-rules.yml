@@ -1,4 +1,0 @@
-bdc_motor/test_apps:
-  disable:
-    - if: SOC_MCPWM_SUPPORTED != 1
-      reason: Only MCPWM backend is implemented
