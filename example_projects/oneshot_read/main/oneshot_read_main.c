@@ -21,8 +21,8 @@ const static char *TAG = "EXAMPLE";
 ---------------------------------------------------------------*/
 //ADC1 Channels
 #if CONFIG_IDF_TARGET_ESP32
-#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_4
-#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_5
+#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_4 // gpio 32 on esp32
+#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_5 // gpio 33 on esp32
 #else
 #define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_2
 #define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_3
