@@ -77,3 +77,5 @@ idf.py -p PORT erase-flash
 
 MAKING NEW PROJECT
 idf.py create-project _proj_name_ _dest_path_
+
+ESP EXAMPLES: ~/esp/esp-idf/examples
