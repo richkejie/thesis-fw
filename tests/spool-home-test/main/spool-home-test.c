@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "esp_adc/adc_cali.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -49,9 +50,12 @@ static const char *TAG = "spool_home";
 #define CURRENT_SENSE_CHAN  ADC_CHANNEL_6   /* GPIO 34 = ADC1 channel 6       */
 
 /* ── Tuning ────────────────────────────────────────────────────────────────── */
-#define HOMING_DUTY             512     /* 0–1023, ~50 % PWM                  */
+#define HOMING_DUTY             600     /* 0–1023, ~50 % PWM                  */
 #define STALL_ENCODER_TIMEOUT_MS 200    /* ms of encoder silence → stall      */
-#define STALL_CURRENT_THRESHOLD 3000    /* ADC raw (0–4095) above → stall     */
+#define STALL_CURRENT_V_THRESHOLD 50    /* ADC raw (0–4095) above → stall     */
+
+#define ENCODER_HIGH_LIMIT      1000
+#define ENCODER_LOW_LIMIT       -1000
 
 /* ── LEDC (PWM) config ─────────────────────────────────────────────────────── */
 #define LEDC_TIMER          LEDC_TIMER_0
@@ -67,6 +71,12 @@ static int                  encoder_position   = 0;   /* zeroed after homing  */
 
 /* ── ADC handle ────────────────────────────────────────────────────────────── */
 static adc_oneshot_unit_handle_t adc_handle = NULL;
+static adc_cali_handle_t adc_cali_handle = NULL;
+static bool do_adc_cali = false;
+
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
+static void example_adc_calibration_deinit(adc_cali_handle_t handle);
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  PCNT watch-point callback — fires on every edge so we can timestamp it
@@ -84,41 +94,29 @@ static bool IRAM_ATTR pcnt_on_reach(pcnt_unit_handle_t unit,
  * ═════════════════════════════════════════════════════════════════════════ */
 static void encoder_init(void)
 {
-    pcnt_unit_config_t unit_cfg = {
-        .low_limit  = -32768,
-        .high_limit =  32767,
+    pcnt_unit_config_t unit_config = {
+        .low_limit  = ENCODER_LOW_LIMIT,
+        .high_limit =  ENCODER_HIGH_LIMIT,
     };
-    ESP_ERROR_CHECK(pcnt_new_unit(&unit_cfg, &pcnt_unit));
+    ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &pcnt_unit));
 
     /* Glitch filter: ignore pulses shorter than 1 µs */
-    pcnt_glitch_filter_config_t filter_cfg = { .max_glitch_ns = 1000 };
-    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_cfg));
+    pcnt_glitch_filter_config_t filter_config = { .max_glitch_ns = 1000 };
+    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_config));
 
-    /* Channel 0 — count on A edges, gate with B for direction */
-    pcnt_chan_config_t chan0_cfg = {
+    /* Channel — count on A edges, gate with B for direction */
+    pcnt_chan_config_t chan_config = {
         .edge_gpio_num  = ENC_A_GPIO,
         .level_gpio_num = ENC_B_GPIO,
     };
-    pcnt_channel_handle_t chan0 = NULL;
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan0_cfg, &chan0));
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(chan0,
-        PCNT_CHANNEL_EDGE_ACTION_INCREASE,   /* rising  A, B low  → +1 */
-        PCNT_CHANNEL_EDGE_ACTION_DECREASE)); /* falling A, B low  → -1 */
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(chan0,
-        PCNT_CHANNEL_LEVEL_ACTION_KEEP,      /* B high → keep direction */
-        PCNT_CHANNEL_LEVEL_ACTION_INVERSE)); /* B low  → invert         */
-
-    /* Channel 1 — count on B edges, gate with A for direction */
-    pcnt_chan_config_t chan1_cfg = {
-        .edge_gpio_num  = ENC_B_GPIO,
-        .level_gpio_num = ENC_A_GPIO,
-    };
-    pcnt_channel_handle_t chan1 = NULL;
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan1_cfg, &chan1));
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(chan1,
-        PCNT_CHANNEL_EDGE_ACTION_DECREASE,
-        PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(chan1,
+    pcnt_channel_handle_t pcnt_chan = NULL;
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config, &pcnt_chan));
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(
+        pcnt_chan,
+        PCNT_CHANNEL_EDGE_ACTION_INCREASE,
+        PCNT_CHANNEL_EDGE_ACTION_HOLD));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(
+        pcnt_chan,
         PCNT_CHANNEL_LEVEL_ACTION_KEEP,
         PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
@@ -155,7 +153,6 @@ static void motor_pwm_init(void)
         .speed_mode = LEDC_MODE,
         .channel    = LEDC_CHANNEL,
         .timer_sel  = LEDC_TIMER,
-        .intr_type  = LEDC_INTR_DISABLE,
         .gpio_num   = MOTOR_PWM_GPIO,
         .duty       = 0,
         .hpoint     = 0,
@@ -194,8 +191,47 @@ static void adc_init(void)
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle,
                                                CURRENT_SENSE_CHAN, &chan_cfg));
 
+    // ADC calibration
+    // do_adc_cali = example_adc_calibration_init(ADC_UNIT_1, CURRENT_SENSE_CHAN, ADC_ATTEN_DB_12, &adc_cali_handle);
+
     ESP_LOGI(TAG, "ADC initialised on channel %d (GPIO %d)",
              CURRENT_SENSE_CHAN, CURRENT_SENSE_GPIO);
+}
+
+/*---------------------------------------------------------------
+        ADC Calibration
+---------------------------------------------------------------*/
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
+{
+    adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
+
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Line Fitting");
+        adc_cali_line_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_line_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
+    }
+#endif
+
+    *out_handle = handle;
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Calibration Success");
+    } else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated) {
+        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
+    } else {
+        ESP_LOGE(TAG, "Invalid arg or no memory");
+    }
+
+    return calibrated;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -221,14 +257,31 @@ static bool encoder_stalled(void)
 {
     int64_t now     = esp_timer_get_time();
     int64_t silence = (now - last_pulse_time_us) / 1000; /* µs → ms */
+
+    int count = 0;
+    pcnt_unit_get_count(pcnt_unit, &count);
+    ESP_LOGI(TAG, "Encoder count: %d", count);
+
     return (silence >= STALL_ENCODER_TIMEOUT_MS);
 }
 
 static bool current_spiked(void)
 {
     int raw = 0;
+    int voltage = 0;
     ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, CURRENT_SENSE_CHAN, &raw));
-    return (raw >= STALL_CURRENT_THRESHOLD);
+    if (do_adc_cali) {
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc_cali_handle, raw, &voltage));
+        ESP_LOGI(TAG, "ADC Channel Cali Voltage: %d mV", voltage);
+    } else {
+        ESP_LOGI(TAG, "ADC Channel raw: %d", raw);
+    }
+    
+    if (do_adc_cali) {
+        return (voltage >= STALL_CURRENT_V_THRESHOLD);
+    } else {
+        return (raw >= STALL_CURRENT_V_THRESHOLD);
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -268,12 +321,13 @@ static void home_spool(void)
         if (cur_spike)
             ESP_LOGD(TAG, "Current spike (waiting for encoder confirmation)");
 
-        vTaskDelay(pdMS_TO_TICKS(10));  /* 10 ms poll interval */
+        vTaskDelay(pdMS_TO_TICKS(100));  /* 10 ms poll interval */
     }
 
     motor_stop();
 
     /* ── Zero the encoder ── */
+    vTaskDelay(pdMS_TO_TICKS(1000));  /* 10 ms poll interval */
     ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
     encoder_position = 0;
 
