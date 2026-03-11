@@ -4,6 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/*
+
+motor driver: pololu mp6550
+
+MOTOR --- MCU/driver
+M1 --- OUT2
+M2 --- OUT1
+GND --- GND
+VCC --- MCU 3.3V
+C1 --- GPIO35
+C2 --- GPIO34
+
+driver --- MCU
+IN1 --- GPIO14
+IN2 --- GPIO12
+nSLP --- MCU 3.3V
+GND --- GND
+
+*/
+
+
 #include <stdio.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
