@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Robot Controller</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --surface: #1a1a1f;
+    --surface2: #25252c;
+    --border: rgba(255,255,255,0.08);
+    --accent: #3b82f6;
+    --accent-dim: rgba(59,130,246,0.18);
+    --text: #f0f0f5;
+    --muted: #8888a0;
+    --danger: #ef4444;
+    --danger-dim: rgba(239,68,68,0.15);
+    --success: #22c55e;
+    --warn: #f59e0b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+    gap: 20px;
+    user-select: none;
+  }
+
+  header {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  #status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 12px 4px 8px;
+    transition: color 0.2s;
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.2s;
+  }
+  #status-pill.ok   { color: var(--success); }
+  #status-pill.ok   #status-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  #status-pill.err  { color: var(--danger);  }
+  #status-pill.err  #status-dot { background: var(--danger); }
+
+  /* IP config card */
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 18px;
+  }
+
+  .card label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .ip-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  input[type="text"] {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    padding: 9px 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+
+  button.connect-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  button.connect-btn:active { opacity: 0.8; transform: scale(0.97); }
+
+  /* State display */
+  .state-bar {
+    width: 100%; max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .state-bar span { font-family: 'SF Mono', monospace; color: var(--text); }
+
+  /* Speed slider */
+  .slider-card {
+    width: 100%; max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .slider-label { font-size: 12px; color: var(--muted); white-space: nowrap; font-weight: 500; }
+  input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .speed-val {
+    font-size: 15px; font-weight: 600;
+    color: var(--accent); min-width: 36px; text-align: right;
+  }
+
+  /* D-pad */
+  .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 76px);
+    grid-template-rows: repeat(3, 76px);
+    gap: 8px;
+  }
+
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    transition: background 0.1s, transform 0.08s, border-color 0.1s;
+    font-size: 22px;
+    color: var(--text);
+    touch-action: manipulation;
+  }
+
+  .btn:active, .btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    transform: scale(0.93);
+  }
+
+  .btn.stop {
+    background: var(--danger-dim);
+    border-color: rgba(239,68,68,0.3);
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .btn.stop:active {
+    background: rgba(239,68,68,0.3);
+    border-color: var(--danger);
+  }
+
+  /* Arc turn panel */
+  .arc-card {
+    width: 100%; max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 18px;
+  }
+  .arc-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .arc-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .arc-row input[type="range"] { flex: 1; }
+  .arc-row .val { min-width: 32px; text-align: right; color: var(--text); font-weight: 500; }
+  .arc-btns { display: flex; gap: 8px; margin-top: 4px; }
+  .arc-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 20px;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.1s, transform 0.08s;
+  }
+  .arc-btn:active { background: var(--accent-dim); border-color: var(--accent); transform: scale(0.96); }
+
+  /* log */
+  .log {
+    width: 100%; max-width: 420px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+    max-height: 80px;
+    overflow-y: auto;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Robot Control</div>
+  <div id="status-pill">
+    <div id="status-dot"></div>
+    <span id="status-text">disconnected</span>
+  </div>
+</header>
+
+<!-- IP config -->
+<div class="card">
+  <label>Robot IP address</label>
+  <div class="ip-row">
+    <input type="text" id="ip-input" value="192.168.1.100" placeholder="192.168.x.x" spellcheck="false" autocomplete="off">
+    <button class="connect-btn" onclick="ping()">Connect</button>
+  </div>
+</div>
+
+<!-- State -->
+<div class="state-bar">
+  State <span id="state-val">—</span>
+</div>
+
+<!-- Speed -->
+<div class="slider-card">
+  <div class="slider-label">Speed</div>
+  <input type="range" id="speed" min="20" max="100" value="80" step="1" oninput="document.getElementById('speed-val').textContent=this.value+'%'">
+  <div class="speed-val" id="speed-val">80%</div>
+</div>
+
+<!-- D-pad -->
+<div class="dpad">
+  <!-- row 1 -->
+  <div></div>
+  <div class="btn" id="btn-fwd" ontouchstart="hold('forward')" ontouchend="releaseHold()" onmousedown="hold('forward')" onmouseup="releaseHold()">▲</div>
+  <div></div>
+  <!-- row 2 -->
+  <div class="btn" id="btn-left" ontouchstart="hold('left')" ontouchend="releaseHold()" onmousedown="hold('left')" onmouseup="releaseHold()">↺</div>
+  <div class="btn stop" id="btn-stop" onclick="cmd('stop')">STOP</div>
+  <div class="btn" id="btn-right" ontouchstart="hold('right')" ontouchend="releaseHold()" onmousedown="hold('right')" onmouseup="releaseHold()">↻</div>
+  <!-- row 3 -->
+  <div></div>
+  <div class="btn" id="btn-bwd" ontouchstart="hold('backward')" ontouchend="releaseHold()" onmousedown="hold('backward')" onmouseup="releaseHold()">▼</div>
+  <div></div>
+</div>
+
+<!-- Arc turn -->
+<div class="arc-card">
+  <div class="arc-title">Wide arc turn (forward)</div>
+  <div class="arc-row">
+    <span style="min-width:52px">Outer</span>
+    <input type="range" id="arc-outer" min="20" max="100" value="80" step="1" oninput="document.getElementById('arc-outer-val').textContent=this.value+'%'">
+    <div class="val" id="arc-outer-val">80%</div>
+  </div>
+  <div class="arc-row">
+    <span style="min-width:52px">Inner</span>
+    <input type="range" id="arc-inner" min="0" max="80" value="35" step="1" oninput="document.getElementById('arc-inner-val').textContent=this.value+'%'">
+    <div class="val" id="arc-inner-val">35%</div>
+  </div>
+  <div class="arc-btns">
+    <div class="arc-btn" onclick="arcTurn('left')">⟵ Arc left</div>
+    <div class="arc-btn" onclick="arcTurn('right')">Arc right ⟶</div>
+  </div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+  let robotIP = '192.168.1.100';
+  let holdTimer = null;
+  let currentHoldCmd = null;
+
+  function base() { return 'http://' + document.getElementById('ip-input').value.trim(); }
+  function speed() { return parseInt(document.getElementById('speed').value); }
+
+  function log(msg, ok = true) {
+    const el = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString('en', {hour12: false});
+    el.innerHTML = `<div style="color:${ok ? 'var(--muted)' : 'var(--danger)'}">${ts} ${msg}</div>` + el.innerHTML;
+    if (el.children.length > 8) el.lastChild.remove();
+  }
+
+  async function cmd(endpoint, params = {}) {
+    const url = new URL(base() + '/' + endpoint);
+    Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+    try {
+      const r = await fetch(url, { method: endpoint === 'status' ? 'GET' : 'POST', signal: AbortSignal.timeout(2000) });
+      const j = await r.json();
+      if (j.state) document.getElementById('state-val').textContent = j.state;
+      if (j.cmd)   document.getElementById('state-val').textContent = j.cmd;
+      setStatus(true, j.state || j.cmd);
+      log(`→ /${endpoint} ${JSON.stringify(params)}`);
+      return j;
+    } catch(e) {
+      setStatus(false, 'error');
+      log(`✕ ${endpoint}: ${e.message}`, false);
+    }
+  }
+
+  function setStatus(ok, label) {
+    const pill = document.getElementById('status-pill');
+    const txt  = document.getElementById('status-text');
+    pill.className = ok ? 'ok' : 'err';
+    txt.textContent = label || (ok ? 'connected' : 'error');
+  }
+
+  async function ping() {
+    const j = await cmd('status');
+    if (j) setStatus(true, j.state || 'connected');
+  }
+
+  /* Hold-to-move: sends command at ~10 Hz while button held */
+  function hold(endpoint) {
+    if (holdTimer) return;
+    currentHoldCmd = endpoint;
+    document.getElementById('btn-' + (endpoint === 'forward' ? 'fwd' : endpoint === 'backward' ? 'bwd' : endpoint))?.classList.add('active');
+    const fire = () => cmd(endpoint, endpoint === 'left' || endpoint === 'right' ? { speed: speed() } : { speed: speed() });
+    fire();
+    holdTimer = setInterval(fire, 120);
+  }
+
+  function releaseHold() {
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    if (currentHoldCmd) {
+      const id = currentHoldCmd === 'forward' ? 'fwd' : currentHoldCmd === 'backward' ? 'bwd' : currentHoldCmd;
+      document.getElementById('btn-' + id)?.classList.remove('active');
+      currentHoldCmd = null;
+    }
+    cmd('stop');
+  }
+
+  function arcTurn(dir) {
+    const inner = parseInt(document.getElementById('arc-inner').value);
+    const outer = parseInt(document.getElementById('arc-outer').value);
+    cmd('turn', { dir, inner, outer });
+  }
+
+  /* Poll status every 2 s */
+  setInterval(async () => {
+    if (document.getElementById('status-pill').className !== '') {
+      const j = await cmd('status');
+      if (j) document.getElementById('state-val').textContent = j.state;
+    }
+  }, 2000);
+
+  /* Keyboard control */
+  const keyMap = { ArrowUp: 'forward', ArrowDown: 'backward', ArrowLeft: 'left', ArrowRight: 'right' };
+  const held = new Set();
+  document.addEventListener('keydown', e => {
+    const ep = keyMap[e.key];
+    if (ep && !held.has(ep)) { held.add(ep); hold(ep); }
+    if (e.key === ' ') { e.preventDefault(); releaseHold(); cmd('stop'); }
+  });
+  document.addEventListener('keyup', e => {
+    const ep = keyMap[e.key];
+    if (ep) { held.delete(ep); releaseHold(); }
+  });
+</script>
+</body>
+</html>
